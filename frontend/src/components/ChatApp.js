@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Send, LogOut, MoreVertical, Phone, Video, Search, User, Lock } from "lucide-react";
 import {
   generateAESKey,
@@ -70,6 +70,40 @@ const ChatApp = () => {
     socket.emit("join", storedUsername);
 
     // Listeners
+    const handleReceiveMessage = async (payload) => {
+      const { from, encryptedData, iv, encryptedKey } = payload;
+      const privateKeyBase64 = localStorage.getItem("privateKey");
+
+      try {
+        if (!privateKeyBase64) throw new Error("No private key found");
+        const myPrivKey = await importPrivateKey(privateKeyBase64);
+        const aesKeyBuffer = await decryptRSA(myPrivKey, encryptedKey);
+        const aesKeyBase64 = arrayBufferToBase64(aesKeyBuffer);
+        const aesKey = await importSymKey(aesKeyBase64);
+        const decryptedText = await decryptMessage(aesKey, iv, encryptedData);
+
+        const newMessage = {
+          sender: from,
+          text: decryptedText,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          type: "received"
+        };
+
+        setMessages((prev) => ({
+          ...prev,
+          [from]: [...(prev[from] || []), newMessage]
+        }));
+
+        // If we receive a message, they stopped typing properly
+        if (selectedUser?.username === from) {
+          setIsTyping(false);
+        }
+
+      } catch (err) {
+        console.error("Failed to decrypt message from", from, err);
+      }
+    };
+
     const handleIncoming = async (payload) => {
       await handleReceiveMessage(payload);
     };
@@ -163,40 +197,7 @@ const ChatApp = () => {
     loadHistory();
   }, [selectedUser, currentUser]);
 
-  // Handle Incoming Message
-  const handleReceiveMessage = async (payload) => {
-    const { from, encryptedData, iv, encryptedKey } = payload;
-    const privateKeyBase64 = localStorage.getItem("privateKey");
 
-    try {
-      if (!privateKeyBase64) throw new Error("No private key found");
-      const myPrivKey = await importPrivateKey(privateKeyBase64);
-      const aesKeyBuffer = await decryptRSA(myPrivKey, encryptedKey);
-      const aesKeyBase64 = arrayBufferToBase64(aesKeyBuffer);
-      const aesKey = await importSymKey(aesKeyBase64);
-      const decryptedText = await decryptMessage(aesKey, iv, encryptedData);
-
-      const newMessage = {
-        sender: from,
-        text: decryptedText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        type: "received"
-      };
-
-      setMessages((prev) => ({
-        ...prev,
-        [from]: [...(prev[from] || []), newMessage]
-      }));
-
-      // If we receive a message, they stopped typing properly
-      if (selectedUser?.username === from) {
-        setIsTyping(false);
-      }
-
-    } catch (err) {
-      console.error("Failed to decrypt message from", from, err);
-    }
-  };
 
   const handleInputChange = (e) => {
     setInputText(e.target.value);
