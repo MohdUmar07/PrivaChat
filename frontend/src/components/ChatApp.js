@@ -18,7 +18,7 @@ import {
 } from "../CryptoUtils";
 
 // Initialize Socket.io
-const socket = io("http://localhost:5000");
+const socket = io(process.env.REACT_APP_API_URL || "http://localhost:5000");
 
 const ChatApp = () => {
   const [currentUser, setCurrentUser] = useState(null);
@@ -55,7 +55,7 @@ const ChatApp = () => {
     // Fetch All Users
     const fetchUsers = async () => {
       try {
-        const res = await fetch("http://localhost:5000/api/chat/users", {
+        const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/chat/users`, {
           headers: { Authorization: token },
         });
         const data = await res.json();
@@ -119,7 +119,7 @@ const ChatApp = () => {
     const loadHistory = async () => {
       try {
         const token = localStorage.getItem("token");
-        const res = await fetch(`http://localhost:5000/api/chat/messages/${selectedUser.username}`, {
+        const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/chat/messages/${selectedUser.username}`, {
           headers: { Authorization: token },
         });
         const data = await res.json();
@@ -224,7 +224,7 @@ const ChatApp = () => {
       const token = localStorage.getItem("token");
 
       // Fetch Recipient Public Key
-      const res = await fetch(`http://localhost:5000/api/chat/keys/${recipientUsername}`, {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/chat/keys/${recipientUsername}`, {
         headers: { Authorization: token },
       });
       const data = await res.json();
@@ -244,7 +244,7 @@ const ChatApp = () => {
       const encryptedAesKeyBase64 = await encryptRSA(recipientPublicKey, aesKeyBuffer);
 
       // Encrypt AES Key with My Public Key
-      const myPublicKeyRes = await fetch(`http://localhost:5000/api/chat/keys/${currentUser}`, {
+      const myPublicKeyRes = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/chat/keys/${currentUser}`, {
         headers: { Authorization: token },
       });
       const myPublicKeyData = await myPublicKeyRes.json();
