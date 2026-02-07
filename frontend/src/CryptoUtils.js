@@ -20,7 +20,7 @@ export const base64ToArrayBuffer = (base64) => {
     return bytes.buffer;
 };
 
-// Generate RSA Key Pair (for identifying users and sharing AES keys)
+// Generate RSA Key Pair 
 export const generateKeyPair = async () => {
     return await window.crypto.subtle.generateKey(
         {
@@ -34,13 +34,13 @@ export const generateKeyPair = async () => {
     );
 };
 
-// Export public key to base64 string (to send to server)
+// Export public key 
 export const exportPublicKey = async (key) => {
     const exported = await window.crypto.subtle.exportKey("spki", key);
     return arrayBufferToBase64(exported);
 };
 
-// Import public key from base64 string (received from server)
+// Import public key 
 export const importPublicKey = async (base64Key) => {
     const buffer = base64ToArrayBuffer(base64Key);
     return await window.crypto.subtle.importKey(
@@ -55,13 +55,13 @@ export const importPublicKey = async (base64Key) => {
     );
 };
 
-// Export private key (to store locally)
+// Export private key 
 export const exportPrivateKey = async (key) => {
     const exported = await window.crypto.subtle.exportKey("pkcs8", key);
     return arrayBufferToBase64(exported);
 };
 
-// Import private key (from local storage)
+// Import private key 
 export const importPrivateKey = async (base64Key) => {
     const buffer = base64ToArrayBuffer(base64Key);
     return await window.crypto.subtle.importKey(
@@ -75,6 +75,83 @@ export const importPrivateKey = async (base64Key) => {
         ["decrypt"]
     );
 };
+
+// --- PBKDF2 Key Derivation for Secure Key Storage ---
+
+const deriveKeyFromPassword = async (password, salt) => {
+    const encoder = new TextEncoder();
+    const keyMaterial = await window.crypto.subtle.importKey(
+        "raw",
+        encoder.encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"]
+    );
+
+    return await window.crypto.subtle.deriveKey(
+        {
+            name: "PBKDF2",
+            salt: salt,
+            iterations: 100000,
+            hash: "SHA-256",
+        },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        true,
+        ["encrypt", "decrypt"]
+    );
+};
+
+// Encrypt Private Key with Password
+export const encryptPrivateKeyWithPassword = async (privateKeyBase64, password) => {
+    const salt = window.crypto.getRandomValues(new Uint8Array(16));
+    const key = await deriveKeyFromPassword(password, salt);
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+
+    const encoder = new TextEncoder();
+    const data = encoder.encode(privateKeyBase64);
+
+    const encrypted = await window.crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: iv },
+        key,
+        data
+    );
+
+    // Format: salt + iv + ciphertext (all combined or object)
+    // We'll return a JSON string containing base64 parts for easier storage
+    return JSON.stringify({
+        salt: arrayBufferToBase64(salt),
+        iv: arrayBufferToBase64(iv),
+        ciphertext: arrayBufferToBase64(encrypted)
+    });
+};
+
+// Decrypt Private Key with Password
+export const decryptPrivateKeyWithPassword = async (encryptedBundleJson, password) => {
+    try {
+        const bundle = JSON.parse(encryptedBundleJson);
+        const salt = base64ToArrayBuffer(bundle.salt);
+        const iv = base64ToArrayBuffer(bundle.iv);
+        const ciphertext = base64ToArrayBuffer(bundle.ciphertext);
+
+        const key = await deriveKeyFromPassword(password, new Uint8Array(salt));
+
+        const decrypted = await window.crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: new Uint8Array(iv) },
+            key,
+            ciphertext
+        );
+
+        const decoder = new TextDecoder();
+        return decoder.decode(decrypted);
+    } catch (e) {
+        console.error("Failed to decrypt private key with password:", e);
+        throw new Error("Invalid password or corrupted key data");
+    }
+};
+
+
+// ----------------------------------------------------
 
 // Generate a random AES key (for message encryption)
 export const generateAESKey = async () => {
@@ -157,15 +234,20 @@ export const encryptRSA = async (publicKey, data) => {
 
 // Decrypt data (e.g., AES key) using RSA Private Key
 export const decryptRSA = async (privateKey, base64Data) => {
-    const data = base64ToArrayBuffer(base64Data);
-    const decrypted = await window.crypto.subtle.decrypt(
-        {
-            name: "RSA-OAEP",
-        },
-        privateKey,
-        data
-    );
-    return decrypted;
+    try {
+        const data = base64ToArrayBuffer(base64Data);
+        const decrypted = await window.crypto.subtle.decrypt(
+            {
+                name: "RSA-OAEP",
+            },
+            privateKey,
+            data
+        );
+        return decrypted;
+    } catch (e) {
+        console.error("decryptRSA failed:", e);
+        throw e;
+    }
 };
 
 // Validates if the browser supports Web Crypto API

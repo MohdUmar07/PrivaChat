@@ -23,6 +23,13 @@ const io = new SocketIOServer(server, {
 app.use(cors());
 app.use(express.json());
 
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  console.log('Body:', req.body);
+  next();
+});
+
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/chat", chatRoutes);
@@ -33,12 +40,27 @@ mongoose.connect(process.env.MONGO_URI)
   .catch((err) => console.log("❌ MongoDB connection error:", err));
 
 // Socket.IO handling
+// Socket.IO handling
+const onlineUsers = new Map(); // username -> socketId
+
 io.on("connection", (socket) => {
   console.log(`🔌 User connected: ${socket.id}`);
 
   socket.on("join", (username) => {
-    socket.join(username); // Join a room with the user's username
-    console.log(`${username} joined the chat room`);
+    socket.join(username);
+    onlineUsers.set(username, socket.id);
+    console.log(`${username} joined. Online: ${onlineUsers.size}`);
+
+    // Broadcast online users
+    io.emit("onlineUsers", Array.from(onlineUsers.keys()));
+  });
+
+  socket.on("typing", ({ to, from }) => {
+    io.to(to).emit("typing", { from });
+  });
+
+  socket.on("stopTyping", ({ to, from }) => {
+    io.to(to).emit("stopTyping", { from });
   });
 
   socket.on("sendMessage", async (message, toUser) => {
@@ -63,6 +85,15 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`❌ User disconnected: ${socket.id}`);
+
+    // Find username by socketId and remove
+    for (const [username, socketId] of onlineUsers.entries()) {
+      if (socketId === socket.id) {
+        onlineUsers.delete(username);
+        io.emit("onlineUsers", Array.from(onlineUsers.keys()));
+        break;
+      }
+    }
   });
 });
 

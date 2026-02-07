@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
-import "../ChatUI.css";
+import { motion, AnimatePresence } from "framer-motion";
+import { Send, LogOut, MoreVertical, Phone, Video, Search, User, Lock } from "lucide-react";
 import {
   generateAESKey,
   encryptMessage,
@@ -17,18 +17,21 @@ import {
   arrayBufferToBase64
 } from "../CryptoUtils";
 
-// Initialize Socket.io outside component to prevent multiple connections
+// Initialize Socket.io
 const socket = io("http://localhost:5000");
 
 const ChatApp = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
-  const [messages, setMessages] = useState({}); // { username: [msgObjects] }
+  const [messages, setMessages] = useState({});
   const [inputText, setInputText] = useState("");
   const [error, setError] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+
   const navigate = useNavigate();
   const messagesEndRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   // Load User & Private Key on Mount
   useEffect(() => {
@@ -41,15 +44,7 @@ const ChatApp = () => {
       return;
     }
 
-    // Decode JWT to get username? For now rely on localStorage
     if (!storedUsername) {
-      // Fallback: decode JWT or fetch profile
-      // Since we don't have a profile endpoint handy and Login.js saves 'user' object...
-      // Wait, Login.js Login logic: `res.json({ token, user: { ... } })` 
-      // But Login.js `localStorage.setItem("token", ...)` ONLY.
-      // BUG: Login.js does NOT save username to localStorage. 
-      // FIX: I will hotfix this check by attempting to fetch profile or just decode token if needed.
-      // For now, assume username is missing and redirect / show error.
       console.error("Username missing in local storage. Relogin required.");
       navigate("/");
       return;
@@ -60,11 +55,11 @@ const ChatApp = () => {
     // Fetch All Users
     const fetchUsers = async () => {
       try {
-        const res = await axios.get("http://localhost:5000/api/chat/users", {
+        const res = await fetch("http://localhost:5000/api/chat/users", {
           headers: { Authorization: token },
         });
-        // Filter out myself
-        setUsers(res.data.filter((u) => u.username !== storedUsername));
+        const data = await res.json();
+        setUsers(data.filter((u) => u.username !== storedUsername));
       } catch (err) {
         console.error("Failed to fetch users", err);
       }
@@ -74,38 +69,66 @@ const ChatApp = () => {
     // Join my own room
     socket.emit("join", storedUsername);
 
-    // Listen for Messages
-    socket.on("receiveMessage", async (payload) => {
-      // payload: { from, encryptedData, iv, encryptedKey }
+    // Listeners
+    const handleIncoming = async (payload) => {
       await handleReceiveMessage(payload);
-    });
+    };
+
+    const handleOnlineUsers = (usersList) => {
+      setUsers(prevUsers => prevUsers.map(u => ({
+        ...u,
+        isOnline: usersList.includes(u.username)
+      })));
+    };
+
+    const handleTyping = ({ from }) => {
+      if (selectedUser?.username === from) {
+        setIsTyping(true);
+      }
+    };
+
+    const handleStopTyping = ({ from }) => {
+      if (selectedUser?.username === from) {
+        setIsTyping(false);
+      }
+    };
+
+    socket.on("receiveMessage", handleIncoming);
+    socket.on("onlineUsers", handleOnlineUsers);
+    socket.on("typing", handleTyping);
+    socket.on("stopTyping", handleStopTyping);
 
     return () => {
-      socket.off("receiveMessage");
+      socket.off("receiveMessage", handleIncoming);
+      socket.off("onlineUsers", handleOnlineUsers);
+      socket.off("typing", handleTyping);
+      socket.off("stopTyping", handleStopTyping);
     };
-  }, [navigate]);
+  }, [navigate, selectedUser]); // Re-bind listeners when selectedUser changes to ensure typing check works
 
   // Scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, selectedUser]);
+  }, [messages, selectedUser, isTyping]);
 
   // Load History
   useEffect(() => {
     if (!selectedUser || !currentUser) return;
+    setIsTyping(false); // Reset typing state when switching users
 
     const loadHistory = async () => {
       try {
         const token = localStorage.getItem("token");
-        const res = await axios.get(`http://localhost:5000/api/chat/messages/${selectedUser.username}`, {
+        const res = await fetch(`http://localhost:5000/api/chat/messages/${selectedUser.username}`, {
           headers: { Authorization: token },
         });
+        const data = await res.json();
 
         const privateKeyBase64 = localStorage.getItem("privateKey");
         if (!privateKeyBase64) return;
         const myPrivKey = await importPrivateKey(privateKeyBase64);
 
-        const decryptedMsgs = await Promise.all(res.data.map(async (msg) => {
+        const decryptedMsgs = await Promise.all(data.map(async (msg) => {
           try {
             const isMyMsg = msg.sender === currentUser;
             const keyToUse = isMyMsg ? msg.senderEncryptedKey : msg.encryptedKey;
@@ -120,7 +143,7 @@ const ChatApp = () => {
             return {
               sender: msg.sender,
               text: text,
-              timestamp: new Date(msg.createdAt).toLocaleTimeString(),
+              timestamp: new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               type: isMyMsg ? "sent" : "received"
             };
           } catch (e) {
@@ -148,24 +171,15 @@ const ChatApp = () => {
     try {
       if (!privateKeyBase64) throw new Error("No private key found");
       const myPrivKey = await importPrivateKey(privateKeyBase64);
-
-      // 1. Decrypt AES Key using my Private Key
-      // encryptedKey is Base64. decryptRSA expects Base64. returns ArrayBuffer.
       const aesKeyBuffer = await decryptRSA(myPrivKey, encryptedKey);
-
-      // 2. Import AES Key
-      // importSymKey expects Base64. Convert buffer to base64.
       const aesKeyBase64 = arrayBufferToBase64(aesKeyBuffer);
       const aesKey = await importSymKey(aesKeyBase64);
-
-      // 3. Decrypt Message Content
       const decryptedText = await decryptMessage(aesKey, iv, encryptedData);
 
-      // 4. Update UI
       const newMessage = {
         sender: from,
         text: decryptedText,
-        timestamp: new Date().toLocaleTimeString(),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         type: "received"
       };
 
@@ -174,79 +188,84 @@ const ChatApp = () => {
         [from]: [...(prev[from] || []), newMessage]
       }));
 
+      // If we receive a message, they stopped typing properly
+      if (selectedUser?.username === from) {
+        setIsTyping(false);
+      }
+
     } catch (err) {
       console.error("Failed to decrypt message from", from, err);
-      // Optional: Show "Decryption Failed" message in UI
     }
+  };
+
+  const handleInputChange = (e) => {
+    setInputText(e.target.value);
+
+    if (!selectedUser) return;
+
+    socket.emit("typing", { to: selectedUser.username, from: currentUser });
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit("stopTyping", { to: selectedUser.username, from: currentUser });
+    }, 2000);
   };
 
   // Handle Sending Message
   const handleSendMessage = async () => {
     if (!inputText.trim() || !selectedUser) return;
 
+    socket.emit("stopTyping", { to: selectedUser.username, from: currentUser });
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
     try {
       const recipientUsername = selectedUser.username;
-
-      // 1. Get my key (to decrypt/encrypt?) No just need Recipient Public Key
       const token = localStorage.getItem("token");
 
       // Fetch Recipient Public Key
-      const res = await axios.get(
-        `http://localhost:5000/api/chat/keys/${recipientUsername}`,
-        { headers: { Authorization: token } }
-      );
+      const res = await fetch(`http://localhost:5000/api/chat/keys/${recipientUsername}`, {
+        headers: { Authorization: token },
+      });
+      const data = await res.json();
 
-      const recipientPublicKeyBase64 = res.data.publicKey;
+      const recipientPublicKeyBase64 = data.publicKey;
       if (!recipientPublicKeyBase64) {
         setError(`User ${recipientUsername} has no public key!`);
         return;
       }
 
       const recipientPublicKey = await importPublicKey(recipientPublicKeyBase64);
-
-      // 2. Generate Session AES Key
       const aesKey = await generateAESKey();
-
-      // 3. Encrypt Message Payload
       const { iv, ciphertext } = await encryptMessage(aesKey, inputText);
 
-      // 4. Encrypt AES Key with Recipient's Public Key
       const aesKeyRawBase64 = await exportSymKey(aesKey);
-      // CryptoUtils encryptRSA takes (key, bufferSource). 
-      // Need to convert base64 key back to buffer or update encryptRSA to accept base64.
-      // My CryptoUtils encryptRSA definition: `export const encryptRSA = async (publicKey, data) => ... window.crypto.subtle.encrypt(..., publicKey, data)`
-      // WebCrypto encrypt data arg must be BufferSource.
-      // So fetch buffer from base64.
       const aesKeyBuffer = base64ToArrayBuffer(aesKeyRawBase64);
       const encryptedAesKeyBase64 = await encryptRSA(recipientPublicKey, aesKeyBuffer);
 
-      // Encrypt AES Key with My Public Key (for history)
-      const myPublicKeyRes = await axios.get(
-        `http://localhost:5000/api/chat/keys/${currentUser}`,
-        { headers: { Authorization: token } }
-      );
-      const myPublicKey = await importPublicKey(myPublicKeyRes.data.publicKey);
+      // Encrypt AES Key with My Public Key
+      const myPublicKeyRes = await fetch(`http://localhost:5000/api/chat/keys/${currentUser}`, {
+        headers: { Authorization: token },
+      });
+      const myPublicKeyData = await myPublicKeyRes.json();
+      const myPublicKey = await importPublicKey(myPublicKeyData.publicKey);
       const myEncryptedAesKeyBase64 = await encryptRSA(myPublicKey, aesKeyBuffer);
 
-      // 5. Construct Payload
       const payload = {
         from: currentUser,
-        encryptedData: ciphertext,
-        iv: iv,
-        encryptedKey: encryptedAesKeyBase64,
-        senderEncryptedKey: myEncryptedAesKeyBase64,
+        encryptedData: ciphertext, // Base64
+        iv: iv, // Base64
+        encryptedKey: encryptedAesKeyBase64, // Base64
+        senderEncryptedKey: myEncryptedAesKeyBase64, // Base64
         to: recipientUsername
       };
 
-      // 6. Send to Server (Blind Relay)
-      // Note: server expects (message, toUser). message can be object.
       socket.emit("sendMessage", payload, recipientUsername);
 
-      // 7. Update Local UI (Optimistic update)
       const myMessage = {
         sender: "Me",
         text: inputText,
-        timestamp: new Date().toLocaleTimeString(),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         type: "sent"
       };
 
@@ -264,61 +283,182 @@ const ChatApp = () => {
     }
   };
 
+  const handleLogout = () => {
+    localStorage.clear();
+    navigate('/');
+  }
+
   return (
-    <div className="chat-app">
-      <div className="sidebar">
-        <h2>PrivaChat</h2>
-        <div className="user-list">
+    <div className="flex h-[calc(100vh-2rem)] rounded-2xl overflow-hidden glass-panel shadow-2xl">
+      {/* Sidebar */}
+      <div className="w-80 border-r border-white/10 flex flex-col bg-white/5">
+        <div className="p-6 border-b border-white/10">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
+              PrivaChat
+            </h2>
+            <div className="flex gap-2">
+              <button onClick={handleLogout} className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/70 hover:text-white">
+                <LogOut size={18} />
+              </button>
+            </div>
+          </div>
+          <div className="mt-4 relative">
+            <Search className="absolute left-3 top-2.5 text-gray-400 h-4 w-4" />
+            <input
+              type="text"
+              placeholder="Search users..."
+              className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-9 pr-4 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {users.map((user) => (
-            <div
+            <motion.div
               key={user._id}
-              className={`user-item ${selectedUser?.username === user.username ? 'active' : ''}`}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className={`p-3 rounded-xl cursor-pointer flex items-center gap-3 transition-all ${selectedUser?.username === user.username
+                ? 'bg-blue-600/20 border border-blue-500/30'
+                : 'hover:bg-white/5 border border-transparent'
+                }`}
               onClick={() => setSelectedUser(user)}
             >
-              {user.username}
-            </div>
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg relative">
+                {user.username[0].toUpperCase()}
+                {user.isOnline && (
+                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-slate-900 rounded-full"></span>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-white font-medium truncate">{user.username}</h3>
+                <p className="text-xs text-gray-400 truncate">Tap to chat</p>
+              </div>
+            </motion.div>
           ))}
         </div>
-        <div style={{ marginTop: 'auto', padding: '10px', fontSize: '0.8rem', color: '#666' }}>
-          Logged in as: <strong>{currentUser}</strong>
+
+        <div className="p-4 border-t border-white/10 bg-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center">
+              <User size={16} />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs text-gray-400">Logged in as</p>
+              <p className="text-sm font-bold text-white">{currentUser}</p>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="chat-window">
+      {/* Chat Area */}
+      <div className="flex-1 flex flex-col bg-[#0f172a]/50 relative">
         {selectedUser ? (
           <>
-            <div className="chat-header">
-              Chat with {selectedUser.username}
+            {/* Chat Header */}
+            <div className="h-16 px-6 border-b border-white/10 flex items-center justify-between bg-white/5 backdrop-blur-md z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-pink-500 flex items-center justify-center text-white font-bold">
+                  {selectedUser.username[0].toUpperCase()}
+                </div>
+                <div>
+                  <h3 className="font-bold text-white leading-tight">{selectedUser.username}</h3>
+                  {selectedUser.isOnline && (
+                    <p className="text-xs text-green-400 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                      Online
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button className="p-2 hover:bg-white/10 rounded-full text-white/70 transition-colors">
+                  <Phone size={20} />
+                </button>
+                <button className="p-2 hover:bg-white/10 rounded-full text-white/70 transition-colors">
+                  <Video size={20} />
+                </button>
+                <button className="p-2 hover:bg-white/10 rounded-full text-white/70 transition-colors">
+                  <MoreVertical size={20} />
+                </button>
+              </div>
             </div>
 
-            <div className="messages-area">
-              {(messages[selectedUser.username] || []).map((msg, idx) => (
-                <div key={idx} className={`message ${msg.type}`}>
-                  <div>{msg.text}</div>
-                  <div style={{ fontSize: '0.7em', marginTop: '4px', opacity: 0.7 }}>{msg.timestamp}</div>
-                </div>
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {messages[selectedUser.username]?.map((msg, idx) => (
+                <motion.div
+                  key={idx}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`flex ${msg.type === 'sent' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div className={`max-w-[70%] rounded-2xl px-4 py-3 ${msg.type === 'sent'
+                    ? 'bg-blue-600 text-white rounded-br-none'
+                    : 'bg-white/10 text-white rounded-bl-none'
+                    }`}>
+                    <p className="break-words leading-relaxed">{msg.text}</p>
+                    <p className={`text-[10px] mt-1 ${msg.type === 'sent' ? 'text-blue-200' : 'text-gray-400'}`}>
+                      {msg.timestamp}
+                    </p>
+                  </div>
+                </motion.div>
               ))}
+
+              {isTyping && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex justify-start"
+                >
+                  <div className="bg-white/10 text-white rounded-2xl rounded-bl-none px-4 py-3 flex items-center gap-1">
+                    <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
+                    <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+                    <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:0.4s]"></span>
+                  </div>
+                </motion.div>
+              )}
+
               <div ref={messagesEndRef} />
             </div>
 
-            <div className="message-input-area">
-              <input
-                type="text"
-                placeholder="Type a secure message..."
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              />
-              <button className="send-btn" onClick={handleSendMessage}>Send</button>
+            {/* Input */}
+            <div className="p-4 border-t border-white/10 bg-white/5 backdrop-blur-md">
+              <div className="flex gap-2 items-center bg-white/5 rounded-xl p-1 border border-white/10 focus-within:ring-2 focus-within:ring-blue-500/50 transition-all">
+                <input
+                  type="text"
+                  value={inputText}
+                  onChange={handleInputChange}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                  placeholder="Type a secure message..."
+                  className="flex-1 bg-transparent border-none text-white px-4 py-3 focus:outline-none placeholder-gray-500"
+                />
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleSendMessage}
+                  className="bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-lg flex items-center justify-center transition-colors shadow-lg shadow-blue-600/20"
+                >
+                  <Send size={18} />
+                </motion.button>
+              </div>
+              <div className="text-center mt-2">
+                <span className="text-[10px] text-gray-500 flex items-center justify-center gap-1 opacity-60">
+                  <Lock size={10} /> End-to-End Encrypted
+                </span>
+              </div>
+              {error && <p className="text-red-400 text-xs text-center mt-1">{error}</p>}
             </div>
-            {error && <div style={{ color: 'red', padding: '0 20px' }}>{error}</div>}
-            <div style={{ textAlign: 'center', paddingBottom: '10px' }}>
-              <span className="encrypted-badge">🔒 End-to-End Encrypted</span>
-            </div>
+
           </>
         ) : (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
-            Select a user to start a secure chat
+          <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-[#0f172a]/50">
+            <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-4">
+              <Lock size={32} className="text-blue-400" />
+            </div>
+            <h3 className="text-2xl font-bold text-white mb-2">Welcome to PrivaChat</h3>
+            <p className="text-gray-400 max-w-sm">Select a contact from the sidebar to start a secure, end-to-end encrypted conversation.</p>
           </div>
         )}
       </div>

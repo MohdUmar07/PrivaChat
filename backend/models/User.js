@@ -21,6 +21,10 @@ const userSchema = new mongoose.Schema({
     type: String, // Base64 encoded public key
     required: true,
   },
+  encryptedPrivateKey: {
+    type: String, // Base64 encoded encrypted private key
+    required: true,
+  },
 }, { timestamps: true });
 
 module.exports = mongoose.model("User", userSchema);
