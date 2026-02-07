@@ -1,0 +1,174 @@
+// Utility for converting ArrayBuffer to Base64
+export const arrayBufferToBase64 = (buffer) => {
+    let binary = "";
+    const bytes = new Uint8Array(buffer);
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return window.btoa(binary);
+};
+
+// Utility for converting Base64 to ArrayBuffer
+export const base64ToArrayBuffer = (base64) => {
+    const binary_string = window.atob(base64);
+    const len = binary_string.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binary_string.charCodeAt(i);
+    }
+    return bytes.buffer;
+};
+
+// Generate RSA Key Pair (for identifying users and sharing AES keys)
+export const generateKeyPair = async () => {
+    return await window.crypto.subtle.generateKey(
+        {
+            name: "RSA-OAEP",
+            modulusLength: 2048,
+            publicExponent: new Uint8Array([1, 0, 1]),
+            hash: "SHA-256",
+        },
+        true,
+        ["encrypt", "decrypt"]
+    );
+};
+
+// Export public key to base64 string (to send to server)
+export const exportPublicKey = async (key) => {
+    const exported = await window.crypto.subtle.exportKey("spki", key);
+    return arrayBufferToBase64(exported);
+};
+
+// Import public key from base64 string (received from server)
+export const importPublicKey = async (base64Key) => {
+    const buffer = base64ToArrayBuffer(base64Key);
+    return await window.crypto.subtle.importKey(
+        "spki",
+        buffer,
+        {
+            name: "RSA-OAEP",
+            hash: "SHA-256",
+        },
+        true,
+        ["encrypt"]
+    );
+};
+
+// Export private key (to store locally)
+export const exportPrivateKey = async (key) => {
+    const exported = await window.crypto.subtle.exportKey("pkcs8", key);
+    return arrayBufferToBase64(exported);
+};
+
+// Import private key (from local storage)
+export const importPrivateKey = async (base64Key) => {
+    const buffer = base64ToArrayBuffer(base64Key);
+    return await window.crypto.subtle.importKey(
+        "pkcs8",
+        buffer,
+        {
+            name: "RSA-OAEP",
+            hash: "SHA-256",
+        },
+        true,
+        ["decrypt"]
+    );
+};
+
+// Generate a random AES key (for message encryption)
+export const generateAESKey = async () => {
+    return await window.crypto.subtle.generateKey(
+        {
+            name: "AES-GCM",
+            length: 256,
+        },
+        true,
+        ["encrypt", "decrypt"]
+    );
+};
+
+// Export AES key (raw)
+export const exportSymKey = async (key) => {
+    const exported = await window.crypto.subtle.exportKey("raw", key);
+    return arrayBufferToBase64(exported);
+};
+
+// Import AES key (raw)
+export const importSymKey = async (base64Key) => {
+    const buffer = base64ToArrayBuffer(base64Key);
+    return await window.crypto.subtle.importKey(
+        "raw",
+        buffer,
+        {
+            name: "AES-GCM",
+        },
+        true,
+        ["encrypt", "decrypt"]
+    );
+};
+
+// Encrypt a message using AES key
+export const encryptMessage = async (key, message) => {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(message);
+    const iv = window.crypto.getRandomValues(new Uint8Array(12)); // Random IV
+    const encrypted = await window.crypto.subtle.encrypt(
+        {
+            name: "AES-GCM",
+            iv: iv,
+        },
+        key,
+        data
+    );
+    return {
+        iv: arrayBufferToBase64(iv),
+        ciphertext: arrayBufferToBase64(encrypted),
+    };
+};
+
+// Decrypt a message using AES key
+export const decryptMessage = async (key, ivBase64, ciphertextBase64) => {
+    const iv = base64ToArrayBuffer(ivBase64);
+    const ciphertext = base64ToArrayBuffer(ciphertextBase64);
+    const decrypted = await window.crypto.subtle.decrypt(
+        {
+            name: "AES-GCM",
+            iv: new Uint8Array(iv),
+        },
+        key,
+        ciphertext
+    );
+    const decoder = new TextDecoder();
+    return decoder.decode(decrypted);
+};
+
+// Encrypt data (e.g., AES key) using RSA Public Key
+export const encryptRSA = async (publicKey, data) => {
+    const encrypted = await window.crypto.subtle.encrypt(
+        {
+            name: "RSA-OAEP",
+        },
+        publicKey,
+        data
+    );
+    return arrayBufferToBase64(encrypted);
+};
+
+// Decrypt data (e.g., AES key) using RSA Private Key
+export const decryptRSA = async (privateKey, base64Data) => {
+    const data = base64ToArrayBuffer(base64Data);
+    const decrypted = await window.crypto.subtle.decrypt(
+        {
+            name: "RSA-OAEP",
+        },
+        privateKey,
+        data
+    );
+    return decrypted;
+};
+
+// Validates if the browser supports Web Crypto API
+export const checkCryptoSupport = () => {
+    return window.crypto && window.crypto.subtle;
+};
