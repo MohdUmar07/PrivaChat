@@ -27,7 +27,7 @@ function Register() {
       localStorage.setItem("privateKey", privateKeyBase64);
 
       // 5. Register User with Public Key AND Encrypted Private Key
-      const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/auth/register`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, X, User } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const FriendRequests = ({ onAccept }) => {
@@ -8,7 +8,7 @@ const FriendRequests = ({ onAccept }) => {
     const fetchRequests = async () => {
         try {
             const token = localStorage.getItem('token');
-            const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/chat/requests`, {
+            const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/chat/requests`, {
                 headers: { Authorization: token }
             });
             if (res.ok) {
@@ -30,7 +30,7 @@ const FriendRequests = ({ onAccept }) => {
     const handleResponse = async (requestId, status) => {
         try {
             const token = localStorage.getItem('token');
-            await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/chat/request/respond`, {
+            await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/chat/request/respond`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
