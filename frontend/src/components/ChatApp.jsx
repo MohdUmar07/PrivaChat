@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import { Send, LogOut, MoreVertical, Phone, Video, Search, User, Lock, ArrowLeft, UserPlus } from "lucide-react";
 import AddContactModal from "./AddContactModal";
 import FriendRequests from "./FriendRequests";
+import LoadingSpinner from "./LoadingSpinner";
+import AlertModal from "./AlertModal";
 import {
   generateAESKey,
   encryptMessage,
@@ -29,8 +31,10 @@ const ChatApp = () => {
   const [messages, setMessages] = useState({});
   const [inputText, setInputText] = useState("");
   const [error, setError] = useState("");
+  const [alertModal, setAlertModal] = useState({ isOpen: false, title: "", message: "", type: "info" });
   const [isTyping, setIsTyping] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [showAddContactModal, setShowAddContactModal] = useState(false);
 
   const navigate = useNavigate();
@@ -50,6 +54,9 @@ const ChatApp = () => {
       setUsers(data);
     } catch (err) {
       console.error("Failed to fetch contacts", err);
+      // specific error handling if needed, but not critical for initial load
+    } finally {
+      setIsInitialLoading(false);
     }
   };
 
@@ -242,7 +249,7 @@ const ChatApp = () => {
 
       const recipientPublicKeyBase64 = data.publicKey;
       if (!recipientPublicKeyBase64) {
-        setError(`User ${recipientUsername} has no public key!`);
+        setAlertModal({ isOpen: true, title: "Error", message: `User ${recipientUsername} has no public key!`, type: "error" });
         setIsSending(false);
         return;
       }
@@ -252,7 +259,7 @@ const ChatApp = () => {
         recipientPublicKey = await importPublicKey(recipientPublicKeyBase64);
       } catch (e) {
         console.error("Failed to import recipient public key", e);
-        setError(`User ${recipientUsername} has an invalid public key.`);
+        setAlertModal({ isOpen: true, title: "Error", message: `User ${recipientUsername} has an invalid public key.`, type: "error" });
         setIsSending(false);
         return;
       }
@@ -300,7 +307,7 @@ const ChatApp = () => {
 
     } catch (err) {
       console.error("Send failed", err);
-      setError("Failed to send message securely.");
+      setAlertModal({ isOpen: true, title: "Send Failed", message: "Failed to send message securely.", type: "error" });
     } finally {
       setIsSending(false);
     }
@@ -309,6 +316,14 @@ const ChatApp = () => {
   const handleLogout = () => {
     localStorage.clear();
     navigate('/');
+  }
+
+  if (isInitialLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#0f172a]">
+        <LoadingSpinner size={48} />
+      </div>
+    );
   }
 
   return (
@@ -486,7 +501,7 @@ const ChatApp = () => {
                   disabled={isSending}
                   className={`bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-lg flex items-center justify-center transition-colors shadow-lg shadow-blue-600/20 ${isSending ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
-                  <Send size={18} className={isSending ? "animate-pulse" : ""} />
+                  {isSending ? <LoadingSpinner size={18} color="text-white" /> : <Send size={18} />}
                 </motion.button>
               </div>
               <div className="text-center mt-2">
@@ -494,7 +509,6 @@ const ChatApp = () => {
                   <Lock size={10} /> End-to-End Encrypted
                 </span>
               </div>
-              {error && <p className="text-red-400 text-xs text-center mt-1">{error}</p>}
             </div>
 
           </>
@@ -512,6 +526,14 @@ const ChatApp = () => {
       <AddContactModal
         isOpen={showAddContactModal}
         onClose={() => setShowAddContactModal(false)}
+      />
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        onClose={() => setAlertModal({ ...alertModal, isOpen: false })}
+        title={alertModal.title}
+        message={alertModal.message}
+        type={alertModal.type}
       />
     </div>
   );

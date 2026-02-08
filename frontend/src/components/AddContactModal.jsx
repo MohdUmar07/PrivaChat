@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Search, UserPlus, X, Check } from 'lucide-react';
 import { motion } from 'framer-motion';
+import LoadingSpinner from './LoadingSpinner';
 
 const AddContactModal = ({ isOpen, onClose, onRequestSent }) => {
     const [query, setQuery] = useState('');
@@ -79,9 +80,9 @@ const AddContactModal = ({ isOpen, onClose, onRequestSent }) => {
                         <button
                             type="submit"
                             disabled={loading || !query.trim()}
-                            className='absolute right-2 top-2 bg-blue-600 px-3 py-1 rounded-lg text-sm font-medium hover:bg-blue-500 text-white disabled:opacity-50'
+                            className='absolute right-2 top-2 bg-blue-600 px-3 py-1 rounded-lg text-sm font-medium hover:bg-blue-500 text-white disabled:opacity-50 min-w-[70px] flex justify-center'
                         >
-                            {loading ? '...' : 'Search'}
+                            {loading ? <LoadingSpinner size={16} color="text-white" /> : 'Search'}
                         </button>
                     </form>
 

@@ -2,15 +2,21 @@ import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Lock, User } from "lucide-react";
+
+import LoadingSpinner from "./LoadingSpinner";
+import AlertModal from "./AlertModal";
 import { decryptPrivateKeyWithPassword } from "../CryptoUtils";
 
 function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [alertModal, setAlertModal] = useState({ isOpen: false, title: "", message: "", type: "info" });
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setLoading(true);
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/auth/login`, {
         method: "POST",
@@ -29,18 +35,36 @@ function Login() {
             localStorage.setItem("privateKey", privateKey);
           } catch (decryptionErr) {
             console.error("Failed to decrypt private key:", decryptionErr);
-            alert("Login successful, but failed to decrypt your private key. Please check your password.");
+            setAlertModal({
+              isOpen: true,
+              title: "Decryption Failed",
+              message: "Login successful, but failed to decrypt your private key. Please check your password.",
+              type: "error"
+            });
+            setLoading(false);
             return; // Don't redirect if key decryption fails
           }
         }
 
         navigate("/chat");
       } else {
-        alert(data.message);
+        setAlertModal({
+          isOpen: true,
+          title: "Login Failed",
+          message: data.message || "Invalid credentials",
+          type: "error"
+        });
       }
     } catch (err) {
       console.error(err);
-      alert("Error logging in");
+      setAlertModal({
+        isOpen: true,
+        title: "Error",
+        message: "An error occurred during login. Please try again.",
+        type: "error"
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -84,8 +108,8 @@ function Login() {
             />
           </div>
 
-          <button type="submit" className="glass-button">
-            Sign In
+          <button type="submit" className="glass-button flex justify-center items-center" disabled={loading}>
+            {loading ? <LoadingSpinner size={24} color="text-white" /> : "Sign In"}
           </button>
         </form>
 
@@ -96,7 +120,16 @@ function Login() {
           </Link>
         </p>
       </div>
-    </motion.div>
+
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        onClose={() => setAlertModal({ ...alertModal, isOpen: false })}
+        title={alertModal.title}
+        message={alertModal.message}
+        type={alertModal.type}
+      />
+    </motion.div >
   );
 }
 

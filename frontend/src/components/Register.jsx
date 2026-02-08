@@ -2,16 +2,21 @@ import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Lock, User, Mail } from "lucide-react";
+import LoadingSpinner from "./LoadingSpinner";
+import AlertModal from "./AlertModal";
 import { generateKeyPair, exportPublicKey, exportPrivateKey, encryptPrivateKeyWithPassword } from "../CryptoUtils";
 
 function Register() {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [alertModal, setAlertModal] = useState({ isOpen: false, title: "", message: "", type: "info" });
   const navigate = useNavigate();
 
   const handleRegister = async (e) => {
     e.preventDefault();
+    setLoading(true);
     try {
       // 1. Generate Key Pair
       const keyPair = await generateKeyPair();
@@ -41,13 +46,33 @@ function Register() {
 
       const data = await res.json();
       if (res.ok) {
-        navigate("/"); // Redirect to login
+        setAlertModal({
+          isOpen: true,
+          title: "Registration Successful",
+          message: "Account created successfully! Redirecting to login...",
+          type: "success"
+        });
+        setTimeout(() => {
+          navigate("/"); // Redirect to login
+        }, 2000);
       } else {
-        alert(data.message || "Registration failed");
+        setAlertModal({
+          isOpen: true,
+          title: "Registration Failed",
+          message: data.message || "Registration failed. Please try again.",
+          type: "error"
+        });
       }
     } catch (err) {
       console.error("Registration failed:", err);
-      alert("Error registering user");
+      setAlertModal({
+        isOpen: true,
+        title: "Error",
+        message: "An error occurred during registration. Please check your network connection.",
+        type: "error"
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -103,8 +128,8 @@ function Register() {
             />
           </div>
 
-          <button type="submit" className="glass-button">
-            Create Account
+          <button type="submit" className="glass-button flex justify-center items-center" disabled={loading}>
+            {loading ? <LoadingSpinner size={24} color="text-white" /> : "Create Account"}
           </button>
         </form>
 
@@ -115,7 +140,15 @@ function Register() {
           </Link>
         </p>
       </div>
-    </motion.div>
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        onClose={() => setAlertModal({ ...alertModal, isOpen: false })}
+        title={alertModal.title}
+        message={alertModal.message}
+        type={alertModal.type}
+      />
+    </motion.div >
   );
 }
 
