@@ -9,7 +9,31 @@ exports.getPublicKey = async (req, res) => {
         const user = await User.findOne({ username });
         if (!user) return res.status(404).json({ message: "User not found" });
 
-        res.json({ publicKey: user.publicKey });
+        res.json({ publicKey: user.publicKey, displayName: user.displayName, about: user.about });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+exports.updateProfile = async (req, res) => {
+    const { displayName, about } = req.body;
+    try {
+        const user = await User.findById(req.user.id);
+        if (displayName) user.displayName = displayName;
+        if (about) user.about = about;
+        await user.save();
+        res.json({ message: "Profile updated successfully", user: { username: user.username, displayName: user.displayName, about: user.about } });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+exports.getUserProfile = async (req, res) => {
+    const { username } = req.params;
+    try {
+        const user = await User.findOne({ username }, "username displayName about email isOnline");
+        if (!user) return res.status(404).json({ message: "User not found" });
+        res.json(user);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -17,7 +41,7 @@ exports.getPublicKey = async (req, res) => {
 
 exports.getContacts = async (req, res) => {
     try {
-        const user = await User.findById(req.user.id).populate("contacts", "username email isOnline");
+        const user = await User.findById(req.user.id).populate("contacts", "username email isOnline displayName about");
         // isOnline logic is handled in frontend via socket usually, but basic data is here
         res.json(user.contacts || []);
     } catch (err) {
@@ -33,7 +57,7 @@ exports.searchUsers = async (req, res) => {
         const users = await User.find({
             username: { $regex: query, $options: "i" },
             _id: { $ne: req.user.id, $nin: currentUser.contacts }
-        }, "username email");
+        }, "username email displayName about");
         res.json(users);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -72,7 +96,7 @@ exports.getFriendRequests = async (req, res) => {
         const requests = await FriendRequest.find({
             recipient: req.user.id,
             status: "pending"
-        }).populate("sender", "username email").sort({ createdAt: -1 });
+        }).populate("sender", "username email displayName about").sort({ createdAt: -1 });
         res.json(requests);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -115,9 +139,40 @@ exports.getMessages = async (req, res) => {
                 { sender: currentUser, recipient: username },
                 { sender: username, recipient: currentUser }
             ]
-        }).sort({ createdAt: 1 });
+        }).sort({ createdAt: 1 }).populate('replyTo');
 
         res.json(messages);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+exports.addReaction = async (req, res) => {
+    const { messageId, emoji } = req.body;
+    try {
+        const message = await Message.findById(messageId);
+        if (!message) return res.status(404).json({ message: "Message not found" });
+
+        const currentUser = await User.findById(req.user.id);
+        const username = currentUser.username;
+
+        // Check if user already reacted, remove it if same emoji (toggle), or update
+        const existingReactionIndex = message.reactions.findIndex(r => r.user === username);
+
+        if (existingReactionIndex > -1) {
+            if (message.reactions[existingReactionIndex].emoji === emoji) {
+                // Remove reaction
+                message.reactions.splice(existingReactionIndex, 1);
+            } else {
+                // Update reaction
+                message.reactions[existingReactionIndex].emoji = emoji;
+            }
+        } else {
+            message.reactions.push({ user: username, emoji });
+        }
+
+        await message.save();
+        res.json(message);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

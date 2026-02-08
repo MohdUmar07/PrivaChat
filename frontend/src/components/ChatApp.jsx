@@ -7,6 +7,9 @@ import AddContactModal from "./AddContactModal";
 import FriendRequests from "./FriendRequests";
 import LoadingSpinner from "./LoadingSpinner";
 import AlertModal from "./AlertModal";
+import ProfileSettingsModal from "./ProfileSettingsModal";
+import ContactInfoModal from "./ContactInfoModal";
+import { Edit2, Reply, Smile, X, MoreHorizontal } from 'lucide-react';
 import {
   generateAESKey,
   encryptMessage,
@@ -22,7 +25,9 @@ import {
 } from "../CryptoUtils";
 
 // Initialize Socket.io
-const socket = io(import.meta.env.VITE_API_URL || "http://localhost:5000");
+// Initialize Socket.io
+import API_URL from "../config";
+const socket = io(API_URL);
 
 const ChatApp = () => {
   const [currentUser, setCurrentUser] = useState(null);
@@ -36,6 +41,11 @@ const ChatApp = () => {
   const [isSending, setIsSending] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [showAddContactModal, setShowAddContactModal] = useState(false);
+  const [showProfileSettings, setShowProfileSettings] = useState(false);
+  const [showContactInfo, setShowContactInfo] = useState(null);
+  const [replyMessage, setReplyMessage] = useState(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(null); // messageId for picker
+  const [highlightedMessageId, setHighlightedMessageId] = useState(null);
 
   const navigate = useNavigate();
   const messagesEndRef = useRef(null);
@@ -47,7 +57,7 @@ const ChatApp = () => {
       const token = localStorage.getItem("token");
       if (!token) return;
 
-      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/chat/contacts`, {
+      const res = await fetch(`${API_URL}/api/chat/contacts`, {
         headers: { Authorization: token },
       });
       const data = await res.json();
@@ -148,6 +158,21 @@ const ChatApp = () => {
     socket.on("typing", handleTyping);
     socket.on("stopTyping", handleStopTyping);
 
+    const handleReaction = (updatedMessage) => {
+      setMessages(prev => {
+        const newMessages = { ...prev };
+        // Find the message in all conversations to update it (since we don't know the exact conversation ID structure easily here without iteration or more robust state)
+        // But usually we just update the active conversation
+        if (selectedUser && newMessages[selectedUser.username]) {
+          newMessages[selectedUser.username] = newMessages[selectedUser.username].map(msg =>
+            msg._id === updatedMessage._id ? { ...msg, reactions: updatedMessage.reactions } : msg
+          );
+        }
+        return newMessages;
+      });
+    };
+    // Socket listener for reactions would go here if implemented via socket. currently HTTP only for simplicity in plan.
+
     return () => {
       socket.off("receiveMessage", handleIncoming);
       socket.off("onlineUsers", handleOnlineUsers);
@@ -169,7 +194,7 @@ const ChatApp = () => {
     const loadHistory = async () => {
       try {
         const token = localStorage.getItem("token");
-        const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/chat/messages/${selectedUser.username}`, {
+        const res = await fetch(`${API_URL}/api/chat/messages/${selectedUser.username}`, {
           headers: { Authorization: token },
         });
         const data = await res.json();
@@ -194,7 +219,14 @@ const ChatApp = () => {
               sender: msg.sender,
               text: text,
               timestamp: new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              type: isMyMsg ? "sent" : "received"
+              type: isMyMsg ? "sent" : "received",
+              _id: msg._id,
+              replyTo: msg.replyTo ? {
+                id: msg.replyTo._id,
+                text: "Reply", // Placeholder, resolved in render
+                sender: msg.replyTo.sender
+              } : null,
+              reactions: msg.reactions || []
             };
           } catch (e) {
             console.error("Decryption error", e);
@@ -229,6 +261,57 @@ const ChatApp = () => {
     }, 2000);
   };
 
+  const handleAddReaction = async (messageId, emoji) => {
+    try {
+      const token = localStorage.getItem("token");
+      // Optimistic update
+      setMessages(prev => {
+        const newMessages = { ...prev };
+        if (selectedUser && newMessages[selectedUser.username]) {
+          newMessages[selectedUser.username] = newMessages[selectedUser.username].map(msg => {
+            if (msg._id === messageId) {
+              const reactions = msg.reactions || [];
+              const existingIndex = reactions.findIndex(r => r.user === currentUser);
+              let newReactions = [...reactions];
+              if (existingIndex > -1) {
+                if (reactions[existingIndex].emoji === emoji) {
+                  newReactions.splice(existingIndex, 1);
+                } else {
+                  newReactions[existingIndex] = { ...newReactions[existingIndex], emoji };
+                }
+              } else {
+                newReactions.push({ user: currentUser, emoji });
+              }
+              return { ...msg, reactions: newReactions };
+            }
+            return msg;
+          });
+        }
+        return newMessages;
+      });
+
+      await fetch(`${API_URL}/api/chat/reaction`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token
+        },
+        body: JSON.stringify({ messageId, emoji }),
+      });
+    } catch (err) {
+      console.error("Failed to add reaction", err);
+    }
+  };
+
+  const scrollToMessage = (messageId) => {
+    const element = document.getElementById(`msg-${messageId}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedMessageId(messageId);
+      setTimeout(() => setHighlightedMessageId(null), 2000);
+    }
+  };
+
   // Handle Sending Message
   const handleSendMessage = async () => {
     if (!inputText.trim() || !selectedUser || isSending) return;
@@ -242,7 +325,7 @@ const ChatApp = () => {
       const token = localStorage.getItem("token");
 
       // Fetch Recipient Public Key
-      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/chat/keys/${recipientUsername}`, {
+      const res = await fetch(`${API_URL}/api/chat/keys/${recipientUsername}`, {
         headers: { Authorization: token },
       });
       const data = await res.json();
@@ -272,7 +355,7 @@ const ChatApp = () => {
       const encryptedAesKeyBase64 = await encryptRSA(recipientPublicKey, aesKeyBuffer);
 
       // Encrypt AES Key with My Public Key
-      const myPublicKeyRes = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/chat/keys/${currentUser}`, {
+      const myPublicKeyRes = await fetch(`${API_URL}/api/chat/keys/${currentUser}`, {
         headers: { Authorization: token },
       });
       const myPublicKeyData = await myPublicKeyRes.json();
@@ -285,7 +368,8 @@ const ChatApp = () => {
         iv: iv, // Base64
         encryptedKey: encryptedAesKeyBase64, // Base64
         senderEncryptedKey: myEncryptedAesKeyBase64, // Base64
-        to: recipientUsername
+        to: recipientUsername,
+        replyTo: replyMessage ? replyMessage._id : null
       };
 
       socket.emit("sendMessage", payload, recipientUsername);
@@ -294,7 +378,13 @@ const ChatApp = () => {
         sender: "Me",
         text: inputText,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        type: "sent"
+        type: "sent",
+        replyTo: replyMessage ? {
+          id: replyMessage._id,
+          sender: replyMessage.sender,
+          text: replyMessage.text
+        } : null,
+        reactions: []
       };
 
       setMessages((prev) => ({
@@ -303,6 +393,7 @@ const ChatApp = () => {
       }));
 
       setInputText("");
+      setReplyMessage(null);
       setError("");
 
     } catch (err) {
@@ -343,11 +434,25 @@ const ChatApp = () => {
               >
                 <UserPlus size={18} />
               </button>
-              <button onClick={handleLogout} className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/70 hover:text-white">
+              <button onClick={handleLogout} className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/70 hover:text-white" title="Logout">
                 <LogOut size={18} />
               </button>
             </div>
           </div>
+
+          <div className="mt-4 flex items-center justify-between bg-white/5 p-2 rounded-lg cursor-pointer hover:bg-white/10 transition-colors" onClick={() => setShowProfileSettings(true)}>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-teal-400 flex items-center justify-center text-white font-bold text-sm">
+                {(currentUser && currentUser[0]) ? currentUser[0].toUpperCase() : 'U'}
+              </div>
+              <div className="flex flex-col">
+                <span className="text-white text-sm font-bold">My Profile</span>
+                <span className="text-xs text-gray-400">Edit Status</span>
+              </div>
+            </div>
+            <Edit2 size={14} className="text-gray-400" />
+          </div>
+
           <div className="mt-4 relative">
             <Search className="absolute left-3 top-2.5 text-gray-400 h-4 w-4" />
             <input
@@ -418,17 +523,24 @@ const ChatApp = () => {
                 >
                   <ArrowLeft size={20} />
                 </button>
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-pink-500 flex items-center justify-center text-white font-bold">
-                  {selectedUser.username[0].toUpperCase()}
-                </div>
-                <div>
-                  <h3 className="font-bold text-white leading-tight">{selectedUser.username}</h3>
-                  {selectedUser.isOnline && (
-                    <p className="text-xs text-green-400 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                      Online
-                    </p>
-                  )}
+                <div
+                  onClick={() => setShowContactInfo(selectedUser)}
+                  className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+                >
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-pink-500 flex items-center justify-center text-white font-bold">
+                    {selectedUser.username[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white leading-tight">
+                      {selectedUser.displayName || selectedUser.username}
+                    </h3>
+                    {selectedUser.isOnline && (
+                      <p className="text-xs text-green-400 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                        Online
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex gap-1 md:gap-2">
@@ -453,14 +565,77 @@ const ChatApp = () => {
                   animate={{ opacity: 1, y: 0 }}
                   className={`flex ${msg.type === 'sent' ? 'justify-end' : 'justify-start'}`}
                 >
-                  <div className={`max-w-[75%] md:max-w-[70%] rounded-2xl px-4 py-3 ${msg.type === 'sent'
-                    ? 'bg-blue-600 text-white rounded-br-none'
-                    : 'bg-white/10 text-white rounded-bl-none'
-                    }`}>
+                  <div
+                    id={`msg-${msg._id}`}
+                    className={`max-w-[75%] md:max-w-[70%] rounded-2xl px-4 py-3 relative group transition-all duration-500 ${msg.type === 'sent'
+                      ? 'bg-blue-600 text-white rounded-br-none'
+                      : 'bg-white/10 text-white rounded-bl-none'
+                      } ${highlightedMessageId === msg._id ? 'ring-2 ring-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.5)]' : ''}`}>
+
+                    {/* Reply Context */}
+                    {msg.replyTo && (
+                      <div
+                        onClick={() => msg.replyTo.id && scrollToMessage(msg.replyTo.id)}
+                        className={`mb-2 p-2 rounded flex items-center gap-2 text-xs border-l-2 cursor-pointer hover:opacity-80 transition-opacity ${msg.type === 'sent' ? 'bg-blue-700 border-white/30' : 'bg-white/5 border-white/30'}`}
+                      >
+                        <Reply size={12} />
+                        <div className="flex flex-col">
+                          <span className="font-bold opacity-70">{msg.replyTo.sender}</span>
+                          <span className="opacity-90 truncate max-w-[150px]">
+                            {messages[selectedUser.username]?.find(m => m._id === msg.replyTo.id)?.text || msg.replyTo.text || "Message not loaded"}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
                     <p className="break-words leading-relaxed">{msg.text}</p>
-                    <p className={`text-[10px] mt-1 ${msg.type === 'sent' ? 'text-blue-200' : 'text-gray-400'}`}>
-                      {msg.timestamp}
-                    </p>
+
+                    <div className="flex items-center justify-end gap-2 mt-1">
+                      {/* Reactions Display */}
+                      {msg.reactions && msg.reactions.length > 0 && (
+                        <div className="flex -space-x-1">
+                          {msg.reactions.map((r, i) => (
+                            <span key={i} className="text-xs bg-black/20 rounded-full p-0.5" title={r.user}>{r.emoji}</span>
+                          ))}
+                        </div>
+                      )}
+                      <p className={`text-[10px] ${msg.type === 'sent' ? 'text-blue-200' : 'text-gray-400'}`}>
+                        {msg.timestamp}
+                      </p>
+                    </div>
+
+                    {/* Hover Actions */}
+                    <div className={`absolute top-0 ${msg.type === 'sent' ? '-left-8' : '-right-8'} opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1`}>
+                      <button onClick={() => setReplyMessage(msg)} className="p-1.5 bg-gray-700/50 hover:bg-gray-600 rounded-full text-gray-300">
+                        <Reply size={12} />
+                      </button>
+                      <div className="relative">
+                        <button
+                          className="p-1.5 bg-gray-700/50 hover:bg-gray-600 rounded-full text-gray-300"
+                          onClick={() => setShowEmojiPicker(showEmojiPicker === idx ? null : idx)}
+                        >
+                          <Smile size={12} />
+                        </button>
+                        {showEmojiPicker === idx && (
+                          <div className={`absolute top-8 ${msg.type === 'sent' ? '-right-2' : '-left-2'} bg-[#1e293b] border border-white/10 rounded-lg p-1 flex gap-1 z-50 shadow-xl`}>
+                            {['👍', '❤️', '😂', '😮', '😢', '🔥'].map(emoji => (
+                              <button
+                                key={emoji}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAddReaction(msg._id, emoji);
+                                  setShowEmojiPicker(null);
+                                }}
+                                className="hover:bg-white/10 p-1 rounded text-lg transition-transform hover:scale-110"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
                   </div>
                 </motion.div>
               ))}
@@ -484,15 +659,24 @@ const ChatApp = () => {
 
             {/* Input */}
             <div className="p-4 border-t border-white/10 bg-white/5 backdrop-blur-md">
+              {replyMessage && (
+                <div className="flex items-center justify-between bg-white/5 p-2 rounded-t-lg border-b border-white/5 mb-1">
+                  <div className="flex items-center gap-2 text-sm text-gray-300">
+                    <Reply size={14} className="text-blue-400" />
+                    <span>Replying to <span className="font-bold text-white">{replyMessage.sender}</span></span>
+                  </div>
+                  <button onClick={() => setReplyMessage(null)} className="text-gray-500 hover:text-white"><X size={14} /></button>
+                </div>
+              )}
               <div className="flex gap-2 items-center bg-white/5 rounded-xl p-1 border border-white/10 focus-within:ring-2 focus-within:ring-blue-500/50 transition-all">
                 <input
                   type="text"
                   value={inputText}
-                  disabled={isSending}
                   onChange={handleInputChange}
                   onKeyDown={(e) => e.key === 'Enter' && !isSending && handleSendMessage()}
                   placeholder="Type a secure message..."
                   className="flex-1 bg-transparent border-none text-white px-4 py-3 focus:outline-none placeholder-gray-500 disabled:opacity-50"
+                  autoFocus
                 />
                 <motion.button
                   whileHover={{ scale: isSending ? 1 : 1.05 }}
@@ -535,7 +719,23 @@ const ChatApp = () => {
         message={alertModal.message}
         type={alertModal.type}
       />
-    </div>
+
+      <ProfileSettingsModal
+        isOpen={showProfileSettings}
+        onClose={() => setShowProfileSettings(false)}
+        currentUser={{ username: currentUser }} // In a real app we'd pass the full profile object
+        onUpdate={(updatedUser) => {
+          // Update local state if needed
+          console.log("Updated user", updatedUser);
+        }}
+      />
+
+      <ContactInfoModal
+        isOpen={!!showContactInfo}
+        onClose={() => setShowContactInfo(null)}
+        contact={showContactInfo}
+      />
+    </div >
   );
 };
 

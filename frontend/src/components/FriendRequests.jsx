@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { motion } from 'framer-motion';
+import API_URL from "../config";
 
 const FriendRequests = ({ onAccept }) => {
     const [requests, setRequests] = useState([]);
@@ -8,7 +9,7 @@ const FriendRequests = ({ onAccept }) => {
     const fetchRequests = async () => {
         try {
             const token = localStorage.getItem('token');
-            const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/chat/requests`, {
+            const res = await fetch(`${API_URL}/api/chat/requests`, {
                 headers: { Authorization: token }
             });
             if (res.ok) {
@@ -30,7 +31,7 @@ const FriendRequests = ({ onAccept }) => {
     const handleResponse = async (requestId, status) => {
         try {
             const token = localStorage.getItem('token');
-            await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/chat/request/respond`, {
+            await fetch(`${API_URL}/api/chat/request/respond`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

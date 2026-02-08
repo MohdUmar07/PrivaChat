@@ -14,6 +14,13 @@ router.post("/request", verifyToken, chatController.sendFriendRequest);
 router.get("/requests", verifyToken, chatController.getFriendRequests);
 router.post("/request/respond", verifyToken, chatController.respondToFriendRequest);
 
+// Profile
+router.put("/profile", verifyToken, chatController.updateProfile);
+router.get("/profile/:username", verifyToken, chatController.getUserProfile);
+
+// Reactions
+router.post("/reaction", verifyToken, chatController.addReaction);
+
 router.post("/sendMessage", verifyToken, (req, res) => {
   // Message sending logic goes here (Authentication handled, but payload is blind forwarded by socket mostly)
   // This REST endpoint might be redundant if we use Socket.io for everything, but keeping it for now.

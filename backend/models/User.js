@@ -7,6 +7,16 @@ const userSchema = new mongoose.Schema({
     unique: true,
     trim: true,
   },
+  displayName: {
+    type: String,
+    trim: true,
+    default: "",
+  },
+  about: {
+    type: String,
+    trim: true,
+    default: "Hey there! I am using PrivaChat.",
+  },
   email: {
     type: String,
     required: true,

@@ -25,6 +25,15 @@ const messageSchema = new mongoose.Schema({
         type: String, // AES key encrypted with sender's public key
         required: true,
     },
+    replyTo: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Message",
+        default: null
+    },
+    reactions: [{
+        user: { type: String, required: true }, // username
+        emoji: { type: String, required: true }
+    }],
 }, { timestamps: true });
 
 module.exports = mongoose.model("Message", messageSchema);

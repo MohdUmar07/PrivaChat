@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Search, UserPlus, X, Check } from 'lucide-react';
 import { motion } from 'framer-motion';
 import LoadingSpinner from './LoadingSpinner';
+import API_URL from "../config";
 
 const AddContactModal = ({ isOpen, onClose, onRequestSent }) => {
     const [query, setQuery] = useState('');
@@ -16,7 +17,7 @@ const AddContactModal = ({ isOpen, onClose, onRequestSent }) => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/chat/search?query=${query}`, {
+            const res = await fetch(`${API_URL}/api/chat/search?query=${query}`, {
                 headers: { Authorization: token }
             });
             const data = await res.json();
@@ -31,7 +32,7 @@ const AddContactModal = ({ isOpen, onClose, onRequestSent }) => {
     const sendRequest = async (userId) => {
         try {
             const token = localStorage.getItem('token');
-            const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/chat/request`, {
+            const res = await fetch(`${API_URL}/api/chat/request`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

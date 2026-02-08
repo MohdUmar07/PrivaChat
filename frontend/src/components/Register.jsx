@@ -5,6 +5,7 @@ import { Lock, User, Mail } from "lucide-react";
 import LoadingSpinner from "./LoadingSpinner";
 import AlertModal from "./AlertModal";
 import { generateKeyPair, exportPublicKey, exportPrivateKey, encryptPrivateKeyWithPassword } from "../CryptoUtils";
+import API_URL from "../config";
 
 function Register() {
   const [username, setUsername] = useState("");
@@ -32,7 +33,7 @@ function Register() {
       localStorage.setItem("privateKey", privateKeyBase64);
 
       // 5. Register User with Public Key AND Encrypted Private Key
-      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/auth/register`, {
+      const res = await fetch(`${API_URL}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
