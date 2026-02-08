@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Send, LogOut, MoreVertical, Phone, Video, Search, User, Lock, ArrowLeft } from "lucide-react";
+import { Send, LogOut, MoreVertical, Phone, Video, Search, User, Lock, ArrowLeft, UserPlus } from "lucide-react";
+import AddContactModal from "./AddContactModal";
+import FriendRequests from "./FriendRequests";
 import {
   generateAESKey,
   encryptMessage,
@@ -28,10 +30,28 @@ const ChatApp = () => {
   const [inputText, setInputText] = useState("");
   const [error, setError] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [showAddContactModal, setShowAddContactModal] = useState(false);
 
   const navigate = useNavigate();
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+
+  // Fetch Contacts
+  const fetchContacts = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+
+      const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/chat/contacts`, {
+        headers: { Authorization: token },
+      });
+      const data = await res.json();
+      setUsers(data);
+    } catch (err) {
+      console.error("Failed to fetch contacts", err);
+    }
+  };
 
   // Load User & Private Key on Mount
   useEffect(() => {
@@ -52,22 +72,11 @@ const ChatApp = () => {
 
     setCurrentUser(storedUsername);
 
-    // Fetch All Users
-    const fetchUsers = async () => {
-      try {
-        const res = await fetch(`${process.env.REACT_APP_API_URL || "http://localhost:5000"}/api/chat/users`, {
-          headers: { Authorization: token },
-        });
-        const data = await res.json();
-        setUsers(data.filter((u) => u.username !== storedUsername));
-      } catch (err) {
-        console.error("Failed to fetch users", err);
-      }
-    };
-    fetchUsers();
-
     // Join my own room
     socket.emit("join", storedUsername);
+
+    fetchContacts();
+
 
     // Listeners
     const handleReceiveMessage = async (payload) => {
@@ -215,8 +224,9 @@ const ChatApp = () => {
 
   // Handle Sending Message
   const handleSendMessage = async () => {
-    if (!inputText.trim() || !selectedUser) return;
+    if (!inputText.trim() || !selectedUser || isSending) return;
 
+    setIsSending(true);
     socket.emit("stopTyping", { to: selectedUser.username, from: currentUser });
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
@@ -233,6 +243,7 @@ const ChatApp = () => {
       const recipientPublicKeyBase64 = data.publicKey;
       if (!recipientPublicKeyBase64) {
         setError(`User ${recipientUsername} has no public key!`);
+        setIsSending(false);
         return;
       }
 
@@ -242,6 +253,7 @@ const ChatApp = () => {
       } catch (e) {
         console.error("Failed to import recipient public key", e);
         setError(`User ${recipientUsername} has an invalid public key.`);
+        setIsSending(false);
         return;
       }
 
@@ -289,6 +301,8 @@ const ChatApp = () => {
     } catch (err) {
       console.error("Send failed", err);
       setError("Failed to send message securely.");
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -307,6 +321,13 @@ const ChatApp = () => {
               PrivaChat
             </h2>
             <div className="flex gap-2">
+              <button
+                onClick={() => setShowAddContactModal(true)}
+                className="p-2 hover:bg-white/10 rounded-full transition-colors text-blue-400 hover:text-blue-300"
+                title="Add Contact"
+              >
+                <UserPlus size={18} />
+              </button>
               <button onClick={handleLogout} className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/70 hover:text-white">
                 <LogOut size={18} />
               </button>
@@ -323,6 +344,14 @@ const ChatApp = () => {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          <FriendRequests onAccept={fetchContacts} />
+
+          <h3 className="px-2 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Contacts</h3>
+
+          {users.length === 0 && (
+            <p className="text-gray-500 text-sm text-center py-4">No contacts yet. Add someone!</p>
+          )}
+
           {users.map((user) => (
             <motion.div
               key={user._id}
@@ -444,18 +473,20 @@ const ChatApp = () => {
                 <input
                   type="text"
                   value={inputText}
+                  disabled={isSending}
                   onChange={handleInputChange}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                  onKeyDown={(e) => e.key === 'Enter' && !isSending && handleSendMessage()}
                   placeholder="Type a secure message..."
-                  className="flex-1 bg-transparent border-none text-white px-4 py-3 focus:outline-none placeholder-gray-500"
+                  className="flex-1 bg-transparent border-none text-white px-4 py-3 focus:outline-none placeholder-gray-500 disabled:opacity-50"
                 />
                 <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                  whileHover={{ scale: isSending ? 1 : 1.05 }}
+                  whileTap={{ scale: isSending ? 1 : 0.95 }}
                   onClick={handleSendMessage}
-                  className="bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-lg flex items-center justify-center transition-colors shadow-lg shadow-blue-600/20"
+                  disabled={isSending}
+                  className={`bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-lg flex items-center justify-center transition-colors shadow-lg shadow-blue-600/20 ${isSending ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
-                  <Send size={18} />
+                  <Send size={18} className={isSending ? "animate-pulse" : ""} />
                 </motion.button>
               </div>
               <div className="text-center mt-2">
@@ -477,6 +508,11 @@ const ChatApp = () => {
           </div>
         )}
       </div>
+
+      <AddContactModal
+        isOpen={showAddContactModal}
+        onClose={() => setShowAddContactModal(false)}
+      />
     </div>
   );
 };

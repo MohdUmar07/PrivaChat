@@ -25,6 +25,10 @@ const userSchema = new mongoose.Schema({
     type: String, // Base64 encoded encrypted private key
     required: true,
   },
+  contacts: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+  }],
 }, { timestamps: true });
 
 module.exports = mongoose.model("User", userSchema);
