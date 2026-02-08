@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Send, LogOut, MoreVertical, Phone, Video, Search, User, Lock } from "lucide-react";
+import { Send, LogOut, MoreVertical, Phone, Video, Search, User, Lock, ArrowLeft } from "lucide-react";
 import {
   generateAESKey,
   encryptMessage,
@@ -236,7 +236,15 @@ const ChatApp = () => {
         return;
       }
 
-      const recipientPublicKey = await importPublicKey(recipientPublicKeyBase64);
+      let recipientPublicKey;
+      try {
+        recipientPublicKey = await importPublicKey(recipientPublicKeyBase64);
+      } catch (e) {
+        console.error("Failed to import recipient public key", e);
+        setError(`User ${recipientUsername} has an invalid public key.`);
+        return;
+      }
+
       const aesKey = await generateAESKey();
       const { iv, ciphertext } = await encryptMessage(aesKey, inputText);
 
@@ -290,9 +298,9 @@ const ChatApp = () => {
   }
 
   return (
-    <div className="flex h-[calc(100vh-2rem)] rounded-2xl overflow-hidden glass-panel shadow-2xl">
+    <div className="flex h-[calc(100vh-2rem)] rounded-2xl overflow-hidden glass-panel shadow-2xl relative">
       {/* Sidebar */}
-      <div className="w-80 border-r border-white/10 flex flex-col bg-white/5">
+      <div className={`w-full md:w-80 border-r border-white/10 flex-col bg-white/5 ${selectedUser ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-6 border-b border-white/10">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
@@ -354,12 +362,18 @@ const ChatApp = () => {
       </div>
 
       {/* Chat Area */}
-      <div className="flex-1 flex flex-col bg-[#0f172a]/50 relative">
+      <div className={`flex-1 flex-col bg-[#0f172a]/50 relative ${!selectedUser ? 'hidden md:flex' : 'flex'}`}>
         {selectedUser ? (
           <>
             {/* Chat Header */}
-            <div className="h-16 px-6 border-b border-white/10 flex items-center justify-between bg-white/5 backdrop-blur-md z-10">
+            <div className="h-16 px-4 md:px-6 border-b border-white/10 flex items-center justify-between bg-white/5 backdrop-blur-md z-10">
               <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setSelectedUser(null)}
+                  className="md:hidden p-2 hover:bg-white/10 rounded-full text-white/70 transition-colors mr-1"
+                >
+                  <ArrowLeft size={20} />
+                </button>
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-pink-500 flex items-center justify-center text-white font-bold">
                   {selectedUser.username[0].toUpperCase()}
                 </div>
@@ -373,7 +387,7 @@ const ChatApp = () => {
                   )}
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-1 md:gap-2">
                 <button className="p-2 hover:bg-white/10 rounded-full text-white/70 transition-colors">
                   <Phone size={20} />
                 </button>
@@ -387,7 +401,7 @@ const ChatApp = () => {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
               {messages[selectedUser.username]?.map((msg, idx) => (
                 <motion.div
                   key={idx}
@@ -395,7 +409,7 @@ const ChatApp = () => {
                   animate={{ opacity: 1, y: 0 }}
                   className={`flex ${msg.type === 'sent' ? 'justify-end' : 'justify-start'}`}
                 >
-                  <div className={`max-w-[70%] rounded-2xl px-4 py-3 ${msg.type === 'sent'
+                  <div className={`max-w-[75%] md:max-w-[70%] rounded-2xl px-4 py-3 ${msg.type === 'sent'
                     ? 'bg-blue-600 text-white rounded-br-none'
                     : 'bg-white/10 text-white rounded-bl-none'
                     }`}>

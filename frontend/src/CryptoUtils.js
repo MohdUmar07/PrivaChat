@@ -42,17 +42,22 @@ export const exportPublicKey = async (key) => {
 
 // Import public key 
 export const importPublicKey = async (base64Key) => {
-    const buffer = base64ToArrayBuffer(base64Key);
-    return await window.crypto.subtle.importKey(
-        "spki",
-        buffer,
-        {
-            name: "RSA-OAEP",
-            hash: "SHA-256",
-        },
-        true,
-        ["encrypt"]
-    );
+    try {
+        const buffer = base64ToArrayBuffer(base64Key);
+        return await window.crypto.subtle.importKey(
+            "spki",
+            buffer,
+            {
+                name: "RSA-OAEP",
+                hash: "SHA-256",
+            },
+            true,
+            ["encrypt"]
+        );
+    } catch (e) {
+        console.error("Invalid public key format:", e);
+        throw new Error("Invalid public key format");
+    }
 };
 
 // Export private key 
