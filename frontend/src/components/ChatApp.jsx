@@ -30,7 +30,7 @@ import API_URL from "../config";
 const socket = io(API_URL);
 
 const ChatApp = () => {
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(() => localStorage.getItem("username"));
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [messages, setMessages] = useState({});
@@ -38,8 +38,8 @@ const ChatApp = () => {
   const [error, setError] = useState("");
   const [alertModal, setAlertModal] = useState({ isOpen: false, title: "", message: "", type: "info" });
   const [isTyping, setIsTyping] = useState(false);
-  const [isSending, setIsSending] = useState(false);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
+
+
   const [showAddContactModal, setShowAddContactModal] = useState(false);
   const [showProfileSettings, setShowProfileSettings] = useState(false);
   const [showContactInfo, setShowContactInfo] = useState(null);
@@ -65,8 +65,6 @@ const ChatApp = () => {
     } catch (err) {
       console.error("Failed to fetch contacts", err);
       // specific error handling if needed, but not critical for initial load
-    } finally {
-      setIsInitialLoading(false);
     }
   };
 
@@ -86,8 +84,6 @@ const ChatApp = () => {
       navigate("/");
       return;
     }
-
-    setCurrentUser(storedUsername);
 
     // Join my own room
     socket.emit("join", storedUsername);
@@ -314,14 +310,40 @@ const ChatApp = () => {
 
   // Handle Sending Message
   const handleSendMessage = async () => {
-    if (!inputText.trim() || !selectedUser || isSending) return;
+    if (!inputText.trim() || !selectedUser) return;
 
-    setIsSending(true);
-    socket.emit("stopTyping", { to: selectedUser.username, from: currentUser });
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    const textToSend = inputText.trim();
+    const recipientUsername = selectedUser.username;
+
+    // Optimistic Update
+    const myMessage = {
+      sender: "Me",
+      text: textToSend,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      type: "sent",
+      replyTo: replyMessage ? {
+        id: replyMessage._id,
+        sender: replyMessage.sender,
+        text: replyMessage.text
+      } : null,
+      reactions: []
+    };
+
+    // Update UI immediately
+    setMessages((prev) => ({
+      ...prev,
+      [recipientUsername]: [...(prev[recipientUsername] || []), myMessage]
+    }));
+
+    setInputText("");
+    setReplyMessage(null);
+    setError("");
+
 
     try {
-      const recipientUsername = selectedUser.username;
+      socket.emit("stopTyping", { to: recipientUsername, from: currentUser });
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
       const token = localStorage.getItem("token");
 
       // Fetch Recipient Public Key
@@ -333,7 +355,6 @@ const ChatApp = () => {
       const recipientPublicKeyBase64 = data.publicKey;
       if (!recipientPublicKeyBase64) {
         setAlertModal({ isOpen: true, title: "Error", message: `User ${recipientUsername} has no public key!`, type: "error" });
-        setIsSending(false);
         return;
       }
 
@@ -343,12 +364,11 @@ const ChatApp = () => {
       } catch (e) {
         console.error("Failed to import recipient public key", e);
         setAlertModal({ isOpen: true, title: "Error", message: `User ${recipientUsername} has an invalid public key.`, type: "error" });
-        setIsSending(false);
         return;
       }
 
       const aesKey = await generateAESKey();
-      const { iv, ciphertext } = await encryptMessage(aesKey, inputText);
+      const { iv, ciphertext } = await encryptMessage(aesKey, textToSend);
 
       const aesKeyRawBase64 = await exportSymKey(aesKey);
       const aesKeyBuffer = base64ToArrayBuffer(aesKeyRawBase64);
@@ -374,33 +394,9 @@ const ChatApp = () => {
 
       socket.emit("sendMessage", payload, recipientUsername);
 
-      const myMessage = {
-        sender: "Me",
-        text: inputText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        type: "sent",
-        replyTo: replyMessage ? {
-          id: replyMessage._id,
-          sender: replyMessage.sender,
-          text: replyMessage.text
-        } : null,
-        reactions: []
-      };
-
-      setMessages((prev) => ({
-        ...prev,
-        [recipientUsername]: [...(prev[recipientUsername] || []), myMessage]
-      }));
-
-      setInputText("");
-      setReplyMessage(null);
-      setError("");
-
     } catch (err) {
       console.error("Send failed", err);
       setAlertModal({ isOpen: true, title: "Send Failed", message: "Failed to send message securely.", type: "error" });
-    } finally {
-      setIsSending(false);
     }
   };
 
@@ -409,13 +405,7 @@ const ChatApp = () => {
     navigate('/');
   }
 
-  if (isInitialLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-[#0f172a]">
-        <LoadingSpinner size={48} />
-      </div>
-    );
-  }
+
 
   return (
     <div className="flex h-[calc(100vh-2rem)] rounded-2xl overflow-hidden glass-panel shadow-2xl relative">
@@ -673,19 +663,18 @@ const ChatApp = () => {
                   type="text"
                   value={inputText}
                   onChange={handleInputChange}
-                  onKeyDown={(e) => e.key === 'Enter' && !isSending && handleSendMessage()}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                   placeholder="Type a secure message..."
                   className="flex-1 bg-transparent border-none text-white px-4 py-3 focus:outline-none placeholder-gray-500 disabled:opacity-50"
                   autoFocus
                 />
                 <motion.button
-                  whileHover={{ scale: isSending ? 1 : 1.05 }}
-                  whileTap={{ scale: isSending ? 1 : 0.95 }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                   onClick={handleSendMessage}
-                  disabled={isSending}
-                  className={`bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-lg flex items-center justify-center transition-colors shadow-lg shadow-blue-600/20 ${isSending ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-lg flex items-center justify-center transition-colors shadow-lg shadow-blue-600/20`}
                 >
-                  {isSending ? <LoadingSpinner size={18} color="text-white" /> : <Send size={18} />}
+                  <Send size={18} />
                 </motion.button>
               </div>
               <div className="text-center mt-2">
