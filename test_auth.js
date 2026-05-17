@@ -8,7 +8,8 @@ const testUser = {
     username: `TestUser${randomId}`,
     email: `test${randomId}@example.com`,
     password: 'password123',
-    publicKey: 'dummyPublicKeyForTesting123=='
+    publicKey: 'dummyPublicKeyForTesting123==',
+    encryptedPrivateKey: '{"salt":"dummySalt","iv":"dummyIv","ciphertext":"dummyCiphertext"}'
 };
 
 async function testAuth() {
