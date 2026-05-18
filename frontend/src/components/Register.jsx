@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Lock, User, Mail } from "lucide-react";
+import { Lock, User, Mail, Home } from "lucide-react";
 import LoadingSpinner from "./LoadingSpinner";
 import AlertModal from "./AlertModal";
 import { generateKeyPair, exportPublicKey, exportPrivateKey, encryptPrivateKeyWithPassword } from "../CryptoUtils";
@@ -54,7 +54,7 @@ function Register() {
           type: "success"
         });
         setTimeout(() => {
-          navigate("/"); // Redirect to login
+          navigate("/login"); // Redirect to login
         }, 2000);
       } else {
         setAlertModal({
@@ -84,6 +84,9 @@ function Register() {
       exit={{ opacity: 0, y: -20 }}
       className="max-w-md mx-auto"
     >
+      <Link to="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-white transition-colors mb-6 text-sm">
+        <Home size={16} /> Back to Home
+      </Link>
       <div className="glass-panel p-8 rounded-2xl">
         <div className="text-center mb-8">
           <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
@@ -136,7 +139,7 @@ function Register() {
 
         <p className="text-center mt-6 text-gray-400">
           Already have an account?{" "}
-          <Link to="/" className="text-blue-400 hover:text-blue-300 transition-colors">
+          <Link to="/login" className="text-blue-400 hover:text-blue-300 transition-colors">
             Sign In
           </Link>
         </p>
